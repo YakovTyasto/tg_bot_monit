@@ -1,6 +1,9 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# The package is imported from the repository root, which the bare "pytest"
+# console script does not add to sys.path on its own.
+pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py39"
