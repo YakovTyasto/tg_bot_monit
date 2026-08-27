@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import requests
 
-from .config import HTTP_TIMEOUT
+from .config import HTTP_TIMEOUT, UTC
 from .models import Candle, MarketData
 
 

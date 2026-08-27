@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
 from btc_monitor.alerts import build_alert_report, detect_alert
 from btc_monitor.analysis import analyze_technical, assess_market, build_scenarios
-from btc_monitor.config import BTC_QUANTITY, STATE_PATH, telegram_credentials
+from btc_monitor.config import BTC_QUANTITY, STATE_PATH, UTC, telegram_credentials
 from btc_monitor.http import build_session
 from btc_monitor.macro import fetch_macro_data
 from btc_monitor.market import MarketDataError, fetch_market_data

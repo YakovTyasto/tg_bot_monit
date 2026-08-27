@@ -111,21 +111,47 @@ def _macro_section(macro: MacroData, news: list[NewsItem]) -> str:
             "Ожидания ставки: за последние 24ч надежного нового сигнала в доступных "
             "источниках не найдено; числовые вероятности не выдумываются."
         )
+    if macro.inflation_cpi:
+        inflation_line = (
+            f"Инфляция США, CPI год к году: {macro.inflation_cpi.value:.2f}%"
+            f" (данные за {macro.inflation_cpi.as_of:%m.%Y}, FRED)"
+        )
+        if macro.inflation_cpi.change is not None:
+            direction = (
+                "ускорение"
+                if macro.inflation_cpi.change > 0.05
+                else ("замедление" if macro.inflation_cpi.change < -0.05 else "почти без изменений")
+            )
+            inflation_line += (
+                f"; к предыдущему месяцу {macro.inflation_cpi.change:+.2f} п.п. — {direction}"
+            )
+        if macro.inflation_core_cpi:
+            inflation_line += f". Core CPI: {macro.inflation_core_cpi.value:.2f}%"
+        lines.append(inflation_line + ".")
+        lines.append(
+            "Более высокая инфляция обычно удерживает ставки выше дольше, что давит на "
+            "рисковые активы; устойчивое замедление обычно работает в пользу BTC."
+        )
+    else:
+        lines.append("Инфляция: официальные данные CPI временно недоступны.")
+
     inflation_news = next((item for item in news if item.category == "Инфляция"), None)
     if inflation_news:
-        lines.append(f"Инфляция: {inflation_news.summary}")
+        lines.append(f"Инфляционные новости за 24ч: {inflation_news.summary}")
     else:
-        lines.append("Инфляция: нового значимого релиза за последние 24ч не найдено.")
+        lines.append("Инфляционные новости: нового значимого релиза за последние 24ч не найдено.")
 
     if macro.events:
-        lines.append("Важные события США в ближайшие 7 дней (время Маврикия):")
+        now = datetime.now(MAURITIUS_TZ)
+        lines.append("Ближайшие макрособытия (время Маврикия):")
         for event in macro.events:
-            lines.append(f"• {event.starts_at:%d.%m %H:%M} — {event.title} ({event.source})")
+            days_left = max(0, (event.starts_at - now).days)
+            lines.append(
+                f"• {event.starts_at:%d.%m %H:%M} (через {days_left} дн.) — "
+                f"{event.title} ({event.source})"
+            )
     else:
-        lines.append(
-            "В официальном календаре BLS на ближайшие 7 дней значимых событий не "
-            "найдено либо календарь временно недоступен."
-        )
+        lines.append("Календарь ближайших макрособытий временно недоступен.")
     return "\n".join(lines)
 
 

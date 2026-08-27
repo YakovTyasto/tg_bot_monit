@@ -3,14 +3,14 @@ from __future__ import annotations
 import hashlib
 import html
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from time import struct_time
 from urllib.parse import quote_plus
 
 import feedparser
 import requests
 
-from .config import HTTP_TIMEOUT
+from .config import HTTP_TIMEOUT, UTC
 from .models import NewsItem
 
 DIRECT_FEEDS = {
@@ -18,7 +18,6 @@ DIRECT_FEEDS = {
     "Decrypt": "https://decrypt.co/feed",
     "Federal Reserve": "https://www.federalreserve.gov/feeds/press_all.xml",
     "U.S. SEC": "https://www.sec.gov/news/pressreleases.rss",
-    "U.S. BLS": "https://www.bls.gov/feed/bls_latest.rss",
 }
 
 GOOGLE_QUERIES = (
@@ -166,7 +165,7 @@ def _importance(text: str, category: str, source: str) -> int:
         score += 2
     if category in {"Институциональные покупки/продажи", "Криптоинфраструктура", "Ликвидации"}:
         score += 1
-    if source in {"Reuters", "Bloomberg", "Federal Reserve", "U.S. SEC", "U.S. BLS"}:
+    if source in {"Reuters", "Bloomberg", "Federal Reserve", "U.S. SEC"}:
         score += 2
     if any(
         term in lower

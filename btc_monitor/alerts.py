@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-from .config import BTC_QUANTITY, ENTRY_PRICE_USD, INITIAL_POSITION_USD
+from .config import BTC_QUANTITY, ENTRY_PRICE_USD, INITIAL_POSITION_USD, UTC
 from .models import MarketAssessment, MarketData, NewsItem, TechnicalAnalysis
 from .report import money, percent, zone
 

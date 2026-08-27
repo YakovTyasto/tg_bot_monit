@@ -29,7 +29,7 @@ def _return(values: list[float], periods: int) -> float:
 def _atr(candles: list[Candle], period: int = 14) -> float:
     recent = candles[-(period + 1) :]
     true_ranges: list[float] = []
-    for previous, current in zip(recent, recent[1:], strict=False):
+    for previous, current in zip(recent, recent[1:]):
         true_ranges.append(
             max(
                 current.high - current.low,
@@ -99,7 +99,7 @@ def analyze_technical(market: MarketData) -> TechnicalAnalysis:
 
     returns = [
         math.log(current / previous)
-        for previous, current in zip(closes[-31:-1], closes[-30:], strict=False)
+        for previous, current in zip(closes[-31:-1], closes[-30:])
         if previous > 0 and current > 0
     ]
     daily_vol = statistics.pstdev(returns) * 100 if len(returns) >= 2 else 0.0

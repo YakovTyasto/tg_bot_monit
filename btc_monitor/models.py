@@ -46,6 +46,8 @@ class MacroData:
     treasury_10y: MacroMetric | None = None
     fed_lower: MacroMetric | None = None
     fed_upper: MacroMetric | None = None
+    inflation_cpi: MacroMetric | None = None
+    inflation_core_cpi: MacroMetric | None = None
     events: list[MacroEvent] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 

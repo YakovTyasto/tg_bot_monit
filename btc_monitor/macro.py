@@ -3,13 +3,13 @@ from __future__ import annotations
 import csv
 import io
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
 
-from .config import HTTP_TIMEOUT, MAURITIUS_TZ
+from .config import HTTP_TIMEOUT, MAURITIUS_TZ, UTC
 from .models import MacroData, MacroEvent, MacroMetric
 
 
@@ -25,7 +25,7 @@ def _yahoo_metric(session: requests.Session, symbol: str, name: str, unit: str) 
     timestamps = result["timestamp"]
     closes = result["indicators"]["quote"][0]["close"]
     points = [
-        (ts, close) for ts, close in zip(timestamps, closes, strict=False) if close is not None
+        (ts, close) for ts, close in zip(timestamps, closes) if close is not None
     ]
     if len(points) < 2:
         raise ValueError("Недостаточно макро-точек")
@@ -41,31 +41,40 @@ def _yahoo_metric(session: requests.Session, symbol: str, name: str, unit: str) 
     )
 
 
-def _fred_metric(session: requests.Session, series: str, name: str, unit: str) -> MacroMetric:
+def _fred_series(session: requests.Session, series: str, days: int) -> list[tuple[datetime, float]]:
     today = datetime.now(UTC).date()
-    start = today - timedelta(days=45)
+    start = today - timedelta(days=days)
     response = session.get(
         "https://fred.stlouisfed.org/graph/fredgraph.csv",
         params={"id": series, "cosd": start.isoformat(), "coed": today.isoformat()},
         timeout=HTTP_TIMEOUT,
     )
     response.raise_for_status()
-    rows = list(csv.DictReader(io.StringIO(response.text)))
+    reader = csv.DictReader(io.StringIO(response.text))
+    fieldnames = reader.fieldnames or []
+    date_column = next(
+        (name for name in fieldnames if name.upper() in {"DATE", "OBSERVATION_DATE"}), None
+    )
+    value_column = series if series in fieldnames else next(
+        (name for name in fieldnames if name != date_column), None
+    )
+    if not date_column or not value_column:
+        raise ValueError(f"FRED {series}: неожиданный формат CSV")
+
     points: list[tuple[datetime, float]] = []
-    for row in rows:
-        raw = row.get(series, "")
-        if raw and raw != ".":
-            observation_date = row.get("DATE") or row.get("observation_date")
-            if not observation_date:
-                continue
-            points.append(
-                (
-                    datetime.fromisoformat(observation_date).replace(tzinfo=UTC),
-                    float(raw),
-                )
-            )
+    for row in reader:
+        raw = (row.get(value_column) or "").strip()
+        observation_date = (row.get(date_column) or "").strip()
+        if not raw or raw == "." or not observation_date:
+            continue
+        points.append((datetime.fromisoformat(observation_date).replace(tzinfo=UTC), float(raw)))
     if not points:
         raise ValueError(f"FRED {series}: нет данных")
+    return points
+
+
+def _fred_metric(session: requests.Session, series: str, name: str, unit: str) -> MacroMetric:
+    points = _fred_series(session, series, days=45)
     previous = points[-6][1] if len(points) >= 6 else points[-1][1]
     return MacroMetric(
         name=name,
@@ -77,74 +86,111 @@ def _fred_metric(session: requests.Session, series: str, name: str, unit: str) -
     )
 
 
-def _unfold_ics(text: str) -> list[str]:
-    unfolded: list[str] = []
-    for line in text.replace("\r\n", "\n").split("\n"):
-        if line.startswith((" ", "\t")) and unfolded:
-            unfolded[-1] += line[1:]
-        else:
-            unfolded.append(line)
-    return unfolded
+def _fred_yoy_metric(session: requests.Session, series: str, name: str) -> MacroMetric:
+    """Year-over-year change of a monthly FRED index, e.g. headline or core CPI."""
+    points = _fred_series(session, series, days=430)
+    if len(points) < 13:
+        raise ValueError(f"FRED {series}: недостаточно месяцев для расчёта год к году")
+
+    def yoy(offset: int) -> float:
+        current = points[-1 - offset][1]
+        year_ago = points[-13 - offset][1]
+        if year_ago <= 0:
+            raise ValueError(f"FRED {series}: некорректное базовое значение")
+        return (current / year_ago - 1) * 100
+
+    latest = yoy(0)
+    change = latest - yoy(1) if len(points) >= 14 else None
+    return MacroMetric(
+        name=name,
+        value=latest,
+        change=change,
+        unit="%",
+        as_of=points[-1][0],
+        source="FRED",
+    )
 
 
-def _parse_ics_datetime(line: str) -> datetime:
-    prefix, value = line.split(":", 1)
-    tz_match = re.search(r"TZID=([^;:]+)", prefix)
-    if value.endswith("Z"):
-        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
-    parsed = datetime.strptime(value, "%Y%m%dT%H%M%S")
-    tz = ZoneInfo(tz_match.group(1)) if tz_match else UTC
-    return parsed.replace(tzinfo=tz)
+def _clean_html(value: str) -> str:
+    return re.sub(r"<[^>]+>", " ", value).strip()
 
 
-def _bls_events(session: requests.Session) -> list[MacroEvent]:
+MONTH_NUMBERS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+
+# The FOMC statement is published at 14:00 in Washington on the final day of a meeting.
+FOMC_STATEMENT_HOUR = 14
+NEW_YORK_TZ = ZoneInfo("America/New_York")
+
+
+def _fomc_meeting_datetime(year: int, month_text: str, date_text: str) -> datetime | None:
+    """Turn one calendar row (e.g. "Apr/May" + "30-1*") into the statement datetime."""
+    month_parts = [part.strip()[:3].lower() for part in month_text.split("/") if part.strip()]
+    months = [MONTH_NUMBERS[part] for part in month_parts if part in MONTH_NUMBERS]
+    days = [int(value) for value in re.findall(r"\d+", date_text.split("(")[0])]
+    if not months or not days:
+        return None
+    month = months[-1]
+    day = days[-1]
+    # A meeting that starts in December and ends in January belongs to the next year.
+    meeting_year = year + 1 if month == 1 and months[0] == 12 else year
+    try:
+        local = datetime(meeting_year, month, day, FOMC_STATEMENT_HOUR, tzinfo=NEW_YORK_TZ)
+    except ValueError:
+        return None
+    return local.astimezone(MAURITIUS_TZ)
+
+
+def _fomc_events(session: requests.Session, limit: int = 2) -> list[MacroEvent]:
+    """Upcoming FOMC decisions from the Federal Reserve's own published calendar."""
     response = session.get(
-        "https://www.bls.gov/schedule/news_release/bls.ics",
+        "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
         timeout=HTTP_TIMEOUT,
     )
     response.raise_for_status()
+    page = re.sub(r"\s+", " ", response.text)
+
     events: list[MacroEvent] = []
-    current: dict[str, str] | None = None
-    for line in _unfold_ics(response.text):
-        if line == "BEGIN:VEVENT":
-            current = {}
-        elif line == "END:VEVENT" and current is not None:
-            start_line = current.get("DTSTART")
-            title = current.get("SUMMARY", "").replace("\\,", ",")
-            if start_line and title:
-                events.append(
-                    MacroEvent(
-                        title=title,
-                        starts_at=_parse_ics_datetime(start_line).astimezone(MAURITIUS_TZ),
-                        source="U.S. Bureau of Labor Statistics",
-                    )
+    headings = list(re.finditer(r'<a id="\d+">(\d{4}) FOMC Meetings</a>', page))
+    if not headings:
+        raise ValueError("Календарь FOMC: неожиданная структура страницы")
+    for index, heading in enumerate(headings):
+        year = int(heading.group(1))
+        block_end = headings[index + 1].start() if index + 1 < len(headings) else len(page)
+        block = page[heading.end() : block_end]
+        months = re.findall(r"fomc-meeting__month[^>]*>\s*<strong>(.*?)</strong>", block)
+        dates = re.findall(r"fomc-meeting__date[^>]*>(.*?)</div>", block)
+        for month_text, date_text in zip(months, dates):
+            starts_at = _fomc_meeting_datetime(year, month_text, _clean_html(date_text))
+            if starts_at is None:
+                continue
+            events.append(
+                MacroEvent(
+                    title="Заседание FOMC: решение по ставке ФРС",
+                    starts_at=starts_at,
+                    source="Federal Reserve Board",
                 )
-            current = None
-        elif current is not None:
-            if line.startswith("DTSTART"):
-                current["DTSTART"] = line
-            elif line.startswith("SUMMARY:"):
-                current["SUMMARY"] = line.split(":", 1)[1]
+            )
 
     now = datetime.now(MAURITIUS_TZ)
-    end = now + timedelta(days=7)
-    major_terms = (
-        "consumer price index",
-        "producer price index",
-        "employment situation",
-        "job openings",
-        "import and export price",
-        "real earnings",
+    upcoming = sorted(
+        (event for event in events if event.starts_at >= now), key=lambda event: event.starts_at
     )
-    return sorted(
-        [
-            event
-            for event in events
-            if now <= event.starts_at <= end
-            and any(term in event.title.lower() for term in major_terms)
-        ],
-        key=lambda event: event.starts_at,
-    )[:6]
+    if not upcoming:
+        raise ValueError("Календарь FOMC: будущих заседаний не найдено")
+    return upcoming[:limit]
 
 
 def _safe_metric(callable_, warnings: list[str], label: str) -> MacroMetric | None:
@@ -202,10 +248,21 @@ def fetch_macro_data(session: requests.Session) -> MacroData:
         "Верхняя граница ставки ФРС",
     )
 
+    inflation = _safe_metric(
+        lambda: _fred_yoy_metric(session, "CPIAUCSL", "CPI год к году"),
+        warnings,
+        "Индекс потребительских цен (CPI)",
+    )
+    core_inflation = _safe_metric(
+        lambda: _fred_yoy_metric(session, "CPILFESL", "Core CPI год к году"),
+        warnings,
+        "Базовый CPI",
+    )
+
     try:
-        events = _bls_events(session)
-    except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
-        warnings.append(f"Календарь BLS временно недоступен ({type(exc).__name__})")
+        events = _fomc_events(session)
+    except (requests.RequestException, ValueError, KeyError, TypeError, IndexError) as exc:
+        warnings.append(f"Календарь FOMC временно недоступен ({type(exc).__name__})")
         events = []
 
     return MacroData(
@@ -213,6 +270,8 @@ def fetch_macro_data(session: requests.Session) -> MacroData:
         treasury_10y=treasury,
         fed_lower=fed_lower,
         fed_upper=fed_upper,
+        inflation_cpi=inflation,
+        inflation_core_cpi=core_inflation,
         events=events,
         warnings=warnings,
     )

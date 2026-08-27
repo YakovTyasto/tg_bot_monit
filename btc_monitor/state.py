@@ -29,10 +29,15 @@ def load_state(path: Path = STATE_PATH) -> dict[str, Any]:
     except (json.JSONDecodeError, OSError):
         return deepcopy(DEFAULT_STATE)
     state = deepcopy(DEFAULT_STATE)
-    if isinstance(raw, dict):
-        state.update(raw)
-        if isinstance(raw.get("alerts"), dict):
-            state["alerts"].update(raw["alerts"])
+    if not isinstance(raw, dict):
+        return state
+    alerts = state["alerts"]
+    state.update(raw)
+    state["alerts"] = alerts
+    if isinstance(raw.get("alerts"), dict):
+        state["alerts"].update(deepcopy(raw["alerts"]))
+    if not isinstance(state["alerts"].get("sent"), dict):
+        state["alerts"]["sent"] = {}
     return state
 
 

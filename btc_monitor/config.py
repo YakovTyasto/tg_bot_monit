@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import timezone
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,7 +11,8 @@ INITIAL_POSITION_USD = Decimal("50000")
 BTC_QUANTITY = INITIAL_POSITION_USD / ENTRY_PRICE_USD
 
 MAURITIUS_TZ = ZoneInfo("Indian/Mauritius")
-UTC_TZ = ZoneInfo("UTC")
+# Same object as datetime.UTC, which only exists on Python 3.11+.
+UTC = timezone.utc
 
 STATE_PATH = Path(os.getenv("STATE_PATH", "state/state.json"))
 HTTP_TIMEOUT = (5, 15)
