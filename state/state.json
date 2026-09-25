@@ -2,15 +2,14 @@
   "alerts": {
     "last_assessment": {
       "medium_label": "🟡 neutral",
-      "overall_score": 3,
-      "short_label": "🟢 bullish"
+      "overall_score": 2,
+      "short_label": "🟡 neutral"
     },
-    "last_reference_price": 84584.0,
-    "last_sent_at": "2026-09-24T19:11:52.739659+00:00",
+    "last_reference_price": 83933.0,
+    "last_sent_at": "2026-09-25T22:22:45.756217+00:00",
     "sent": {
       "assessment:better:0": "2026-09-16T16:59:14.485746+00:00",
       "assessment:better:3": "2026-09-18T11:18:19.215130+00:00",
-      "assessment:better:4": "2026-09-11T14:27:33.140171+00:00",
       "assessment:better:5": "2026-09-14T19:23:46.491391+00:00",
       "assessment:better:6": "2026-09-21T06:23:20.255615+00:00",
       "assessment:worse:0": "2026-09-15T07:46:52.259187+00:00",
@@ -80,6 +79,7 @@
       "news:c6ef0570a639baf8": "2026-09-17T09:15:05.707985+00:00",
       "news:c7003458586ac603": "2026-09-20T09:06:55.143144+00:00",
       "news:cc6e32a9d4b17359": "2026-09-21T09:39:56.938749+00:00",
+      "news:cf24000da99320fb": "2026-09-25T22:22:45.756217+00:00",
       "news:d185fec91ccc9cbf": "2026-09-15T09:14:08.575328+00:00",
       "news:d370044eea02bf01": "2026-09-22T09:04:42.417480+00:00",
       "news:d59e6dc71ee7f1f0": "2026-09-20T09:06:55.143144+00:00",
